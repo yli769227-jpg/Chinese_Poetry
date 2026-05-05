@@ -19,8 +19,11 @@ wandb_log = False
 
 # ===== 数据 =====
 dataset = "poetry"
-gradient_accumulation_steps = 1
-batch_size = 48                # 每张 GPU；2 卡 DDP 实际 batch=96
+# nanoGPT DDP 要求 gradient_accumulation_steps % ddp_world_size == 0，
+# 实际每卡 grad_accum = gradient_accumulation_steps // world_size = 1
+# effective batch = batch_size × grad_accum_per_gpu × world_size = 48 × 1 × 2 = 96
+gradient_accumulation_steps = 2
+batch_size = 48                # 每张 GPU 的 micro-batch
 block_size = 256
 
 # ===== 模型（~30M 参数） =====
