@@ -1,13 +1,15 @@
 # 生成样例
 
-本目录收录 A 档模型 (15M 参数, 5000 步训练) 的真实生成结果。
+本目录收录 A 档（15M）和 B 档（32M）模型的真实生成结果。
 
 ## 文件说明
 
-| 文件 | 内容 |
-|------|------|
-| [`01_freeform.txt`](01_freeform.txt) | 无 prompt 自由生成 3 个样本，模型自发产出整组系列诗 |
-| [`02_dufu_prompted.txt`](02_dufu_prompted.txt) | 给 `《登高》杜甫\n风急天高` 让模型续写，3 个样本 |
+| 文件 | 模型 | 内容 |
+|------|------|------|
+| [`01_freeform.txt`](01_freeform.txt) | A 档 | 无 prompt 自由生成 3 个样本 |
+| [`02_dufu_prompted.txt`](02_dufu_prompted.txt) | A 档 | `《登高》杜甫` 续写 3 个样本 |
+| [`03_btier_freeform.txt`](03_btier_freeform.txt) | **B 档** | 无 prompt 自由生成 2 个样本（《金陵杂兴》、《咏史》系列） |
+| [`04_btier_dufu_prompted.txt`](04_btier_dufu_prompted.txt) | **B 档** | 杜甫《登高》续写，三档温度 (0.5 / 0.5 / 0.2) |
 
 ## 关键观察
 

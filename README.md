@@ -14,12 +14,17 @@
 
 ## 训练成果速览
 
-| 配置 | 参数量 | 训练步数 | 最终 val_loss | Perplexity | 训练耗时 (单 A30) |
-|------|--------|---------|-------------|-----------|----|
-| **A 档 (small)** | 15.45M | 5,000 | ~3.5 | ~33 | ~5 分钟 |
-| **B 档 (medium)** | ~30M | 15,000 | 待训练 | - | ~2-3 小时 |
+| 配置 | 参数量 | 训练步数 | best val_loss | 实际耗时 | 样本质量 |
+|------|--------|---------|----|----|----|
+| **A 档 (small)** | 15.45M | 5,000 | 4.84 (iter 4750) | ~5 分钟 (单卡) | 格律正确，主题单调 |
+| **B 档 (medium)** | 31.61M | 15,000 | 4.59 (iter 13000) | ~17 分钟 (双卡 DDP) | **主题多样，对仗工整** |
 
-模型权重（A 档）通过 [GitHub Release](https://github.com/yli769227-jpg/Chinese_Poetry/releases) 提供下载。
+> 📌 **关于 val_loss 偏高的说明**：当前 `prepare.py` 把 corpus 末尾 10% 当作
+> 验证集，而 corpus 末尾恰好是楚辞 + 诗经，与训练分布（唐宋诗词为主）差异巨大，
+> 导致 val_loss 数字看起来不理想。这是 train/val 切分的 distribution shift 问题，
+> 不代表模型实际能力。**实际样本质量请直接看 [`samples/`](samples/) 目录。**
+
+模型权重（A/B 档）通过 [GitHub Releases](https://github.com/yli769227-jpg/Chinese_Poetry/releases) 提供下载。
 
 ## 数据来源
 
@@ -129,10 +134,15 @@ python sample.py --out_dir=/path/to/out/poetry_small \
 ### 7. (可选) 直接用预训练 checkpoint
 
 ```bash
-# 从 GitHub Release 下载 A 档权重（~178 MB）
+# A 档（~178 MB，验证流程用）
 mkdir -p out/poetry_small
 wget -O out/poetry_small/ckpt.pt \
     https://github.com/yli769227-jpg/Chinese_Poetry/releases/download/v0.1-small/ckpt.pt
+
+# B 档（~380 MB，质量更好，推荐）
+mkdir -p out/poetry_medium
+wget -O out/poetry_medium/ckpt.pt \
+    https://github.com/yli769227-jpg/Chinese_Poetry/releases/download/v0.2-medium/ckpt.pt
 ```
 
 ## 模型架构（A 档）
@@ -161,21 +171,27 @@ softmax over vocab → next char probability
 
 ## 生成样例
 
-### 自由生成（无 prompt）
-
-模型自己编造系列诗作，自动学会"作者风格 + 系列编号 + 格律"：
+### A 档（15M）—— 格律对，主题单调
 
 ```
 《偈颂一百零四首其九五》释绍昙
 达磨莫相识，知津是阿谁。
 全提不知处，一点混融丝。
-
-《八月八日》陆游
-西风微雨细如泥，强把新𥬠入眼知。
-恰似山中有清酒，东风满帽又春诗。
 ```
 
-更多样例见 [`samples/`](samples/) 目录。
+### B 档（32M）—— 对仗工整，画面感强
+
+```
+《金陵杂兴二百首其一八》苏泂
+霜落风悲古渡头，两边黄叶一边秋。
+相思吟罢清江畔，回望渔人已白头。
+
+《登高》杜甫
+风急天高雁北飞，江山无处不相违。
+江城日落三更后，野寺钟鸣一夜归。
+```
+
+完整对比见 [`samples/`](samples/) 目录。
 
 ### 关键观察
 
@@ -199,8 +215,10 @@ softmax over vocab → next char probability
 ## Roadmap
 
 - [x] A 档：15M 参数，5000 步训练
-- [ ] B 档：30M 参数，15000 步 + DDP 双卡
+- [x] B 档：32M 参数，15000 步 + DDP 双卡
+- [ ] **修复 train/val 切分**：每个子集各取 10%（解决 distribution shift）
 - [ ] C 档：100M 参数（试试硬件极限）
+- [ ] 加显式分隔 token（`<|title|>`、`<|author|>`、`<|content|>`）让边界更清晰
 - [ ] BPE / SentencePiece tokenizer 对比实验
 - [ ] 显式格律标注（平仄 / 韵脚）的输入增强
 

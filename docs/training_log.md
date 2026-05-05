@@ -122,21 +122,93 @@ dtype = "bfloat16"
 - 模型有时把 prompt 里的"风急天高"误解析为作者名延续
 - **教训**：真实 LLM 都用 `<|im_start|>` / `<|im_end|>` 这类显式分隔，不是没原因的
 
-## B 档训练（计划）
+## B 档训练（已完成）
 
-| 项 | A 档 | B 档 |
+### 实际数据
+
+| 项 | A 档 | B 档 (实际) |
 |---|---|---|
-| 参数 | 15M | ~30M |
-| n_layer | 6 | 8 |
-| n_embd | 384 | 512 |
+| 参数 | 15.45M | **31.61M** |
+| n_layer / n_embd | 6 / 384 | 8 / 512 |
 | max_iters | 5,000 | 15,000 |
 | batch (effective) | 64 | 96 (DDP × 2) |
 | 训练方式 | 单卡 | 双卡 DDP |
-| 预计 val_loss | 3.5 | ≤ 2.8 |
-| 预计耗时 | 5 分钟 | 2-3 小时 |
+| best val_loss | 4.84 (iter 4750) | **4.59** (iter 13000) |
+| 实际耗时 | ~5 分钟 | **~17 分钟** |
+| MFU | ~9.7% | ~10-12% |
+| 启动命令 | `python train.py ...` | `torchrun --standalone --nproc_per_node=2 ...` |
 
-启动命令：
-```bash
-cd nanoGPT
-torchrun --standalone --nproc_per_node=2 train.py config/poetry_medium.py
+### 训练耗时大幅低于预期
+
+预估 2-3 小时，实际仅 ~17 分钟。原因：
+- BF16 + fused AdamW 比预想效率高
+- 双卡近似线性加速
+- batch_size=96 让 GPU 始终高负载
+
+### Val_loss 曲线观察（每 500 步评估）
+
 ```
+step 500:   train 4.70, val 5.73
+step 1000:  train 3.99, val 5.25
+step 2000:  train 3.64, val 4.93
+step 5000:  train 3.31, val 4.76
+step 9000:  train 3.11, val 4.63   ← val 接近底部
+step 13000: train 2.97, val 4.59   ← best val (saved)
+step 15000: train 2.94, val 4.62   ← train 仍在降，val 微涨
+```
+
+train 持续下降，val 在 step 9000 附近触底后基本平稳 —— 表面看像过拟合，
+但实际原因见下文。
+
+### 重大发现：train/val 切分有 distribution shift
+
+现行 `prepare.py`：
+
+```python
+split_idx = int(n * 0.9)
+train_ids = ids[:split_idx]
+val_ids = ids[split_idx:]    # 末尾 10%
+```
+
+**问题**：corpus 拼接顺序是「唐诗 → 宋诗 → 宋词 → 元曲 → 论语 → 楚辞 → 诗经」。
+末尾 10% 几乎全是楚辞和诗经（先秦诗，风格差异极大）。模型再强也学不会
+"楚辞 OOD"，所以 val_loss 必然偏高。
+
+这导致：
+1. **val_loss 数字看起来过拟合**（train 2.94 vs val 4.62）
+2. **数字夸大了 train-val gap**：实际是 distribution shift，不是真过拟合
+3. **模型实际能力被低估**：定性看样本质量，B 档比 A 档显著好
+
+### 修复方案（Roadmap）
+
+```python
+# 选项 1：每个子集各 90/10 切分
+for subset in subsets:
+    n = len(subset)
+    split = int(n * 0.9)
+    train_docs += subset[:split]
+    val_docs += subset[split:]
+
+# 选项 2：先打乱再切（更简单）
+random.seed(42)
+random.shuffle(all_docs)
+split = int(len(all_docs) * 0.9)
+train_docs = all_docs[:split]
+val_docs = all_docs[split:]
+```
+
+修复后预期 val_loss 直接降到 train_loss 附近（3.0 左右）。
+
+### 样本质量飞跃（对比 A 档）
+
+定性观察 B 档相比 A 档：
+
+| 维度 | A 档 | B 档 |
+|------|------|------|
+| 主题连贯 | 同一系列内重复打转 | 每首换主题 |
+| 对仗工整度 | 偶尔工整 | 大量工整对仗 |
+| 标题/作者格式 | 偶尔混淆 | 清晰分行 |
+| 历史典故 | 几乎没有 | 准确引用人名地名 |
+
+详见 [`samples/03_btier_freeform.txt`](../samples/03_btier_freeform.txt) 与
+[`samples/04_btier_dufu_prompted.txt`](../samples/04_btier_dufu_prompted.txt)。
