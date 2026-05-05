@@ -10,7 +10,7 @@ B 档：~30M 参数，双卡 DDP，约 2-3 小时训完。
 """
 
 # ===== 输出 =====
-out_dir = "out/poetry_medium"
+out_dir = "/data/poetry-llm/out/poetry_medium"
 eval_interval = 500
 eval_iters = 100
 log_interval = 20
