@@ -1,0 +1,39 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+
+# Data (大文件，需用脚本重新生成)
+raw/
+data/*.txt
+data/*.bin
+data/*.pkl
+
+# Training outputs (权重在 GitHub Release 提供)
+out/
+wandb/
+*.pt
+*.ckpt
+
+# nanoGPT (作为依赖，不重新分发)
+nanoGPT/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 日志
+*.log
+log.log

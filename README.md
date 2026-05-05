@@ -1,0 +1,217 @@
+# Chinese Poetry — 从零训练一个古诗词小语言模型
+
+> 一个**教学性质**的从头预训练（from-scratch pretraining）项目：用字符级 GPT，在唐诗、宋词、宋诗、元曲、楚辞、诗经、论语等古典文献语料上，从零训练一个小型语言模型。
+>
+> 目标不是 SOTA，而是**完整理解 LLM 预训练的全流程**：数据 → tokenizer → 模型 → 训练 → 采样。
+
+## 项目特点
+
+- **从零训练**：不使用任何预训练权重，完全从随机初始化开始
+- **小巧可复现**：A 档 15M 参数，单张 24GB 显存 GPU 几分钟训完
+- **风格鲜明**：选择领域窄但风格独特的语料 —— 古典诗词
+- **代码极简**：基于 [nanoGPT](https://github.com/karpathy/nanoGPT)，核心训练代码 < 600 行
+- **中文友好**：字符级 tokenizer，每个 token 直接对应一个汉字
+
+## 训练成果速览
+
+| 配置 | 参数量 | 训练步数 | 最终 val_loss | Perplexity | 训练耗时 (单 A30) |
+|------|--------|---------|-------------|-----------|----|
+| **A 档 (small)** | 15.45M | 5,000 | ~3.5 | ~33 | ~5 分钟 |
+| **B 档 (medium)** | ~30M | 15,000 | 待训练 | - | ~2-3 小时 |
+
+模型权重（A 档）通过 [GitHub Release](https://github.com/yli769227-jpg/Chinese_Poetry/releases) 提供下载。
+
+## 数据来源
+
+来自 [chinese-poetry/chinese-poetry](https://github.com/chinese-poetry/chinese-poetry)（CC0 / Public Domain）：
+
+| 子集 | 内容 | 字符 |
+|------|------|------|
+| 全唐诗 | 唐诗 + 宋诗 ~5.5 万 + 25 万首 | 繁体 |
+| 宋词 | 词 ~2 万首 | 简体 |
+| 元曲 | 元曲选集 | 简体 |
+| 楚辞 | 屈原等 | 简体 |
+| 诗经 | 305 篇 | 简体 |
+| 论语 | 全本 | 简体 |
+
+经简繁统一 + 去空白处理后：
+- **总文档数**：344,355
+- **总字符数**：28,468,085 (~28.5M tokens)
+- **独立字符数**：12,573（即 vocab_size）
+
+## 硬件要求
+
+- 至少 1 张 NVIDIA GPU，24GB 显存（A30 / RTX 3090 / 4090 / A6000 等）
+- ~10GB 磁盘空间（含原始语料 + 训练数据 + checkpoint）
+- Python 3.10+
+
+## Quick Start
+
+### 1. 环境准备
+
+```bash
+# 克隆本项目
+git clone https://github.com/yli769227-jpg/Chinese_Poetry.git
+cd Chinese_Poetry
+
+# 创建虚拟环境（推荐用 uv，pip + venv 也行）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv --python 3.10
+source .venv/bin/activate
+
+# 装依赖
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+uv pip install -r requirements.txt
+
+# 验证 GPU
+python -c "import torch; print('CUDA:', torch.cuda.is_available(), 'GPUs:', torch.cuda.device_count())"
+```
+
+### 2. 克隆 nanoGPT 与诗词语料
+
+```bash
+# nanoGPT 训练框架（项目依赖）
+git clone https://github.com/karpathy/nanoGPT.git
+
+# 古诗词原始语料 (~455 MB)
+mkdir -p raw && cd raw
+git clone --depth 1 https://github.com/chinese-poetry/chinese-poetry.git
+cd ..
+```
+
+### 3. 数据预处理
+
+```bash
+mkdir -p data
+python scripts/extract_corpus.py     # JSON → corpus.txt（约 1 分钟）
+python scripts/prepare.py             # corpus.txt → train.bin/val.bin/meta.pkl
+```
+
+### 4. 链接数据到 nanoGPT
+
+```bash
+mkdir -p nanoGPT/data/poetry
+ln -sf $(pwd)/data/train.bin nanoGPT/data/poetry/train.bin
+ln -sf $(pwd)/data/val.bin   nanoGPT/data/poetry/val.bin
+ln -sf $(pwd)/data/meta.pkl  nanoGPT/data/poetry/meta.pkl
+cp configs/poetry_small.py  nanoGPT/config/
+cp configs/poetry_medium.py nanoGPT/config/
+```
+
+### 5. 训练
+
+```bash
+cd nanoGPT
+
+# A 档：单卡 ~5-30 分钟
+python train.py config/poetry_small.py
+
+# B 档：双卡 DDP ~2-3 小时
+torchrun --standalone --nproc_per_node=2 train.py config/poetry_medium.py
+```
+
+### 6. 推理生成
+
+```bash
+# 自由生成
+python sample.py --out_dir=/path/to/out/poetry_small \
+    --start='《' --num_samples=3 --max_new_tokens=300 \
+    --temperature=0.8 --top_k=200
+
+# 给一个 prompt 让模型续写
+echo -n '《登高》杜甫
+风急天高' > /tmp/prompt.txt
+python sample.py --out_dir=/path/to/out/poetry_small \
+    --start=FILE:/tmp/prompt.txt --num_samples=3 \
+    --max_new_tokens=200 --temperature=0.5 --top_k=50
+```
+
+### 7. (可选) 直接用预训练 checkpoint
+
+```bash
+# 从 GitHub Release 下载 A 档权重（~178 MB）
+mkdir -p out/poetry_small
+wget -O out/poetry_small/ckpt.pt \
+    https://github.com/yli769227-jpg/Chinese_Poetry/releases/download/v0.1-small/ckpt.pt
+```
+
+## 模型架构（A 档）
+
+```
+Token Embedding (12573 → 384)
+    +
+Position Embedding (256 → 384)
+    ↓
+6 × TransformerBlock {
+    LayerNorm
+    Multi-Head Self-Attention (6 heads, dim 384)
+    LayerNorm
+    Feed-Forward (4× expansion, GELU)
+    Residual connections + dropout
+}
+    ↓
+LayerNorm
+    ↓
+LM Head (384 → 12573)
+    ↓
+softmax over vocab → next char probability
+```
+
+详细参数见 [`configs/poetry_small.py`](configs/poetry_small.py)。
+
+## 生成样例
+
+### 自由生成（无 prompt）
+
+模型自己编造系列诗作，自动学会"作者风格 + 系列编号 + 格律"：
+
+```
+《偈颂一百零四首其九五》释绍昙
+达磨莫相识，知津是阿谁。
+全提不知处，一点混融丝。
+
+《八月八日》陆游
+西风微雨细如泥，强把新𥬠入眼知。
+恰似山中有清酒，东风满帽又春诗。
+```
+
+更多样例见 [`samples/`](samples/) 目录。
+
+### 关键观察
+
+1. **作者风格学习**：模型抓到了"宋太宗 ≈ 道教/金丹"、"陆游 ≈ 漂泊/秋雨/暮年"等指纹
+2. **系列编号**：从训练数据学到了"其一、其二...其一○○" 这种连续编号模式
+3. **格律掌握**：五言/七言、绝句/律诗、词牌格式都基本正确
+4. **幻觉**：编造不存在的诗作和题目（这就是所有 LLM 的本质）
+5. **OOV 局限**：字符级 tokenizer 遇到训练集外字符会卡住（已在 sample.py 中加保护）
+
+## 完整训练流程详解
+
+详见 [`docs/training_log.md`](docs/training_log.md) 和 [`docs/architecture.md`](docs/architecture.md)，包含：
+
+- 数据清洗的设计选择（为什么删空格 / 为什么繁简统一）
+- Tokenizer 选型（字符级 vs BPE 的取舍）
+- 模型超参的物理意义
+- DDP 分布式训练原理
+- 学习率 warmup + cosine decay
+- 采样策略（temperature / top_k）的影响
+
+## Roadmap
+
+- [x] A 档：15M 参数，5000 步训练
+- [ ] B 档：30M 参数，15000 步 + DDP 双卡
+- [ ] C 档：100M 参数（试试硬件极限）
+- [ ] BPE / SentencePiece tokenizer 对比实验
+- [ ] 显式格律标注（平仄 / 韵脚）的输入增强
+
+## 致谢
+
+- [Andrej Karpathy / nanoGPT](https://github.com/karpathy/nanoGPT) — 极简的 GPT 训练框架
+- [chinese-poetry/chinese-poetry](https://github.com/chinese-poetry/chinese-poetry) — 高质量中文古诗词数据
+- [zhconv](https://github.com/gumblex/zhconv) — 简繁转换
+
+## License
+
+MIT — 见 [LICENSE](LICENSE)
+
+数据语料的版权归原始项目所有，本项目不重新分发原始数据。
