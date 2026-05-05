@@ -16,13 +16,15 @@
 
 | 配置 | 参数量 | 训练步数 | best val_loss | 实际耗时 | 样本质量 |
 |------|--------|---------|----|----|----|
-| **A 档 (small)** | 15.45M | 5,000 | 4.84 (iter 4750) | ~5 分钟 (单卡) | 格律正确，主题单调 |
-| **B 档 (medium)** | 31.61M | 15,000 | 4.59 (iter 13000) | ~17 分钟 (双卡 DDP) | **主题多样，对仗工整** |
+| **A 档 v1 (small, 旧切分)** | 15.45M | 5,000 | 4.84 | ~5 分钟 (单卡) | 格律正确，主题单调 |
+| **B 档 (medium, 旧切分)** | 31.61M | 15,000 | 4.59 | ~17 分钟 (双卡 DDP) | 主题多样，对仗工整 |
+| **A 档 v2 (small, 新切分)** | 15.45M | 5,000 | **3.73** | ~5 分钟 (单卡) | 同 v1 |
 
-> 📌 **关于 val_loss 偏高的说明**：当前 `prepare.py` 把 corpus 末尾 10% 当作
-> 验证集，而 corpus 末尾恰好是楚辞 + 诗经，与训练分布（唐宋诗词为主）差异巨大，
-> 导致 val_loss 数字看起来不理想。这是 train/val 切分的 distribution shift 问题，
-> 不代表模型实际能力。**实际样本质量请直接看 [`samples/`](samples/) 目录。**
+> 📌 **关于切分修复**：早期版本 `prepare.py` 把 corpus 末尾 10% 当作验证集，
+> 而 corpus 末尾恰好是楚辞 + 诗经（与训练分布差异大），导致 val_loss 数字偏高。
+> 现已修复为**文档级随机 shuffle 后 90/10 切分**。A 档 v2 用新切分重训，
+> val_loss 从 4.84 降到 3.73，train-val gap 从 1.34 降到 0.09 —— 证实早期"过拟合"
+> 是 distribution shift 假象，不是真过拟合。详见 [`docs/training_log.md`](docs/training_log.md)。
 
 模型权重（A/B 档）通过 [GitHub Releases](https://github.com/yli769227-jpg/Chinese_Poetry/releases) 提供下载。
 
@@ -216,7 +218,8 @@ softmax over vocab → next char probability
 
 - [x] A 档：15M 参数，5000 步训练
 - [x] B 档：32M 参数，15000 步 + DDP 双卡
-- [ ] **修复 train/val 切分**：每个子集各取 10%（解决 distribution shift）
+- [x] **修复 train/val 切分**：文档级随机 shuffle 后再 90/10（解决 distribution shift）
+- [ ] B 档重训以拿到干净的 val_loss 数据
 - [ ] C 档：100M 参数（试试硬件极限）
 - [ ] 加显式分隔 token（`<|title|>`、`<|author|>`、`<|content|>`）让边界更清晰
 - [ ] BPE / SentencePiece tokenizer 对比实验

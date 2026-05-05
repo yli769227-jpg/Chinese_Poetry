@@ -179,25 +179,43 @@ val_ids = ids[split_idx:]    # 末尾 10%
 2. **数字夸大了 train-val gap**：实际是 distribution shift，不是真过拟合
 3. **模型实际能力被低估**：定性看样本质量，B 档比 A 档显著好
 
-### 修复方案（Roadmap）
+### 修复方案（已实施）
+
+`prepare.py` 已更新为：先按 `\n\n` 切成文档列表，用 `random.seed(42)` 打乱后再 90/10 切分。
+保证 train 和 val 来自同一文档分布，消除 distribution shift。
 
 ```python
-# 选项 1：每个子集各 90/10 切分
-for subset in subsets:
-    n = len(subset)
-    split = int(n * 0.9)
-    train_docs += subset[:split]
-    val_docs += subset[split:]
-
-# 选项 2：先打乱再切（更简单）
+documents = [d for d in text.split("\n\n") if d.strip()]
 random.seed(42)
-random.shuffle(all_docs)
-split = int(len(all_docs) * 0.9)
-train_docs = all_docs[:split]
-val_docs = all_docs[split:]
+random.shuffle(documents)
+split_idx = int(len(documents) * 0.9)
+train_text = "\n\n".join(documents[:split_idx])
+val_text   = "\n\n".join(documents[split_idx:])
 ```
 
-修复后预期 val_loss 直接降到 train_loss 附近（3.0 左右）。
+### A 档新旧切分对比验证
+
+用同样配置（`poetry_small.py`）在新 bin 上重训 5000 步：
+
+| | v1（旧切分：末尾 10%） | v2（新切分：文档级随机） |
+|---|---|---|
+| best val_loss | 4.84 | **3.73** ↓ 23% |
+| 最终 train loss | ~3.65 | 3.64 |
+| train-val gap | **1.34** | **0.09** |
+
+**结论**：
+- 旧切分下"过拟合"是假象，实为 distribution shift
+- 修复后 train/val 几乎贴着走（gap 0.09）—— 这才是同分布评估的健康曲线
+- 模型实际能力优于 v1 的 val_loss 数字所反映
+
+### 训练曲线（v2，新切分）
+
+```
+step 0:    train 9.49, val 9.49
+step 1000: train 4.29, val 4.31     (gap 0.02)
+step 2500: train 3.86, val 3.93     (gap 0.07)
+step 5000: train 3.64, val 3.73     (gap 0.09)
+```
 
 ### 样本质量飞跃（对比 A 档）
 
