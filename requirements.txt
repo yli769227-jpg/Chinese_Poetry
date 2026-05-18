@@ -8,3 +8,10 @@ tiktoken>=0.5.0
 sentencepiece>=0.1.99
 transformers>=4.30
 datasets>=2.14
+
+# --- GRPO / RL fine-tune branch (unsloth_grpo_train.py) ---
+# pypinyin 是 reward 计算用的，纯 Python，跨平台。
+# unsloth + trl 仅在 CUDA + Linux 上有保证。
+pypinyin>=0.50
+trl>=0.11
+unsloth ; platform_system != "Darwin"
