@@ -1,8 +1,23 @@
-# Chinese Poetry — 从零训练一个古诗词小语言模型
+# Chinese Poetry GPT — train a tiny LLM from scratch on classical Chinese poetry
 
-> 一个**教学性质**的从头预训练（from-scratch pretraining）项目：用字符级 GPT，在唐诗、宋词、宋诗、元曲、楚辞、诗经、论语等古典文献语料上，从零训练一个小型语言模型。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)](https://pytorch.org/)
+[![Params](https://img.shields.io/badge/params-15M%20~%2032M-green.svg)](#训练成果速览)
+
+> **A character-level GPT trained from scratch (no pretrained weights) on Tang/Song poetry, Chu Ci, Shijing & more — 15M params, ~5 min on a single GPU.** Built on [nanoGPT](https://github.com/karpathy/nanoGPT), core training code < 600 lines. The goal isn't SOTA — it's understanding the full pretraining pipeline: data → tokenizer → model → training → sampling.
 >
-> 目标不是 SOTA，而是**完整理解 LLM 预训练的全流程**：数据 → tokenizer → 模型 → 训练 → 采样。
+> 一个**教学性质**的从头预训练项目：用字符级 GPT，在唐诗、宋词、楚辞、诗经、论语等古典语料上从零训练一个小语言模型，完整走通 LLM 预训练全流程。
+
+**A 32M-param model, trained from scratch in ~17 minutes, wrote this:**
+
+```
+《登高》杜甫
+风急天高雁北飞，江山无处不相违。
+江城日落三更后，野寺钟鸣一夜归。
+```
+
+> ↑ The model *composed* this — not a verbatim training sample. More in [`samples/`](samples/).
 
 ## 项目特点
 
