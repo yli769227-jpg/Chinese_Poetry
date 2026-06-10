@@ -19,6 +19,10 @@ unsloth_grpo_train.py
    - 第一首诗能算出 reward
    用于在无 GPU 的环境(如 macOS 本地)做冒烟测试。
 5. 关键路径日志：连接、状态变化、错误、请求/响应，prefix `[grpo]`。
+6. **batch 约束**：TRL 0.14~0.17 的 GRPOTrainer 要求全局 batch
+   （单卡 = per_device_train_batch_size）能被 num_generations 整除，
+   否则初始化即 ValueError。默认 --batch-size 4 / --num-generations 4，
+   改参数时保持整除关系（run_train 入口有显式校验）。
 
 跑法
 ----
@@ -100,7 +104,7 @@ def load_poems(corpus_path: Path, max_n: int | None = None) -> List[Dict[str, st
 def build_reward_fn():
     """返回一个 TRL GRPOTrainer 期望的 reward function。
 
-    TRL 0.11+ GRPOTrainer 的 reward function 签名:
+    TRL 0.14+（GRPOTrainer 自该版本引入）的 reward function 签名:
         fn(prompts: List[str], completions: List[str], **kwargs) -> List[float]
     我们把 prompt + completion 拼回成一首"完整诗"再喂 combined_reward。
     """
@@ -207,6 +211,24 @@ def run_dry_run(args) -> int:
 def run_train(args) -> int:
     logger.info("=== TRAIN MODE base_model=%s ===", args.base_model)
 
+    # TRL 0.14~0.17 GRPOTrainer 约束：全局 batch（单卡 = per_device_train_batch_size）
+    # 必须能被 num_generations 整除，否则 Trainer 初始化直接抛 ValueError。
+    # 在加载任何重型依赖前先校验，给出可操作的报错。
+    if args.num_generations <= 0 or args.batch_size % args.num_generations != 0:
+        logger.error(
+            "invalid batch config: --batch-size %d 不能被 --num-generations %d 整除。"
+            "GRPOTrainer 要求全局 batch %% num_generations == 0，"
+            "请改成例如 --batch-size %d 或 --num-generations %d。",
+            args.batch_size, args.num_generations,
+            max(args.num_generations, 1),
+            max(args.batch_size, 1),
+        )
+        return 1
+    logger.info(
+        "batch config OK: batch_size=%d num_generations=%d",
+        args.batch_size, args.num_generations,
+    )
+
     # 重型依赖 import 放在这里，dry-run 时根本不会执行
     try:
         from unsloth import FastLanguageModel  # type: ignore
@@ -303,7 +325,9 @@ def build_argparser():
     ap.add_argument("--max-train-samples", type=int, default=2000)
     ap.add_argument("--max-seq-length", type=int, default=256)
     ap.add_argument("--max-steps", type=int, default=200)
-    ap.add_argument("--batch-size", type=int, default=2)
+    ap.add_argument("--batch-size", type=int, default=4,
+                    help="per-device batch size；必须能被 --num-generations 整除"
+                         "（TRL 0.14~0.17 GRPOTrainer 硬约束）")
     ap.add_argument("--grad-accum", type=int, default=4)
     ap.add_argument("--num-generations", type=int, default=4)
     ap.add_argument("--learning-rate", type=float, default=5e-6)

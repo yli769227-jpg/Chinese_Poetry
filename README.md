@@ -1,5 +1,6 @@
 # Chinese Poetry GPT — train a tiny LLM from scratch on classical Chinese poetry
 
+[![CI](https://github.com/yli769227-jpg/Chinese_Poetry/actions/workflows/test.yml/badge.svg)](https://github.com/yli769227-jpg/Chinese_Poetry/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)](https://pytorch.org/)
@@ -81,9 +82,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv --python 3.10
 source .venv/bin/activate
 
-# 装依赖
+# 装依赖（两条安装路径，按需选择）：
+# 路径 1 —— 只跑 nanoGPT 主线（从零训练 + 采样）：
 uv pip install torch --index-url https://download.pytorch.org/whl/cu124
 uv pip install -r requirements.txt
+
+# 路径 2 —— 还要跑 GRPO 韵律奖励微调分支（见下文 "GRPO 韵律奖励微调" 一节）：
+uv pip install -r requirements-grpo.txt
 
 # 验证 GPU
 python -c "import torch; print('CUDA:', torch.cuda.is_available(), 'GPUs:', torch.cuda.device_count())"
@@ -216,7 +221,14 @@ softmax over vocab → next char probability
 2. **系列编号**：从训练数据学到了"其一、其二...其一○○" 这种连续编号模式
 3. **格律掌握**：五言/七言、绝句/律诗、词牌格式都基本正确
 4. **幻觉**：编造不存在的诗作和题目（这就是所有 LLM 的本质）
-5. **OOV 局限**：字符级 tokenizer 遇到训练集外字符会卡住（已在 sample.py 中加保护）
+5. **OOV 局限**：字符级 tokenizer 遇到训练集外字符（如空格）会 KeyError 卡住。
+   上游 nanoGPT 的 `sample.py` **没有**这层保护，需按下述方式修改克隆下来的
+   `nanoGPT/sample.py`（encode lambda 加 `if c in stoi` 过滤未知字符）：
+
+   ```diff
+   -    encode = lambda s: [stoi[c] for c in s]
+   +    encode = lambda s: [stoi[c] for c in s if c in stoi]
+   ```
 
 ## 完整训练流程详解
 
@@ -229,6 +241,37 @@ softmax over vocab → next char probability
 - 学习率 warmup + cosine decay
 - 采样策略（temperature / top_k）的影响
 
+## GRPO 韵律奖励微调（实验性）
+
+与 nanoGPT 从零训练主线**并行存在**的强化学习分支：base model 用
+**Qwen2.5-0.5B-Instruct**（最小可用且支持中文的现成 HF 权重，nanoGPT
+字符级模型没有 HF 权重所以不在此分支复用），用 TRL 0.14+ 的 GRPOTrainer
++ 韵律 reward 做微调。
+
+**Reward 设计一句话**：`combined = 0.6 * 押韵（偶数句末字韵类众数占比）+
+0.4 * 平仄（按"双字音步/一三五不论、二四六分明"给每句的节奏点交替度打分）`，
+输出 0~1，实现在 [`rewards/rhyme_pingze.py`](rewards/rhyme_pingze.py)。
+
+```bash
+# 安装该分支依赖（与主线分开）
+pip install -r requirements-grpo.txt
+
+# 冒烟（无 GPU 也能跑，不加载模型，只验证 dataset + reward 链路）
+python unsloth_grpo_train.py --dry-run
+
+# 正式训练（需 CUDA + Linux/WSL；unsloth 不支持 macOS）
+python unsloth_grpo_train.py \
+    --base-model unsloth/Qwen2.5-0.5B-Instruct \
+    --corpus data/corpus.txt \
+    --output-dir out/grpo_qwen05 \
+    --max-steps 200
+# 注意：--batch-size 必须能被 --num-generations 整除（TRL GRPOTrainer 硬约束，默认 4/4）
+
+# 跑 reward 函数单测（只需 pypinyin + pytest）
+pip install pypinyin pytest
+pytest tests/ -v
+```
+
 ## Roadmap
 
 - [x] A 档：15M 参数，5000 步训练
@@ -239,6 +282,8 @@ softmax over vocab → next char probability
 - [ ] 加显式分隔 token（`<|title|>`、`<|author|>`、`<|content|>`）让边界更清晰
 - [ ] BPE / SentencePiece tokenizer 对比实验
 - [ ] 显式格律标注（平仄 / 韵脚）的输入增强
+- [x] GRPO 韵律奖励微调分支（实验性）：押韵 + 平仄 reward、dry-run、单测、CI
+- [ ] GRPO 正式训练跑通，记录 reward 曲线与生成质量对比
 
 ## 致谢
 

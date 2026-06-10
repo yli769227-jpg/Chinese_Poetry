@@ -38,7 +38,7 @@
 
 **2. 删除所有空白字符**
 - 古文 corpus 里的空格大多是排版残留，无语义价值
-- 副作用：模型不会处理含空格的 prompt（已在 sample.py 加 `if c in stoi` 保护）
+- 副作用：模型不会处理含空格的 prompt。上游 nanoGPT 的 sample.py 没有这层保护，需手动给克隆下来的 `nanoGPT/sample.py` 的 encode lambda 加 `if c in stoi` 过滤（见 README "OOV 局限"处的 diff）
 
 **3. 文档分隔策略**
 - 每个文档格式：`《标题》作者\n第一行\n第二行\n...`
@@ -114,7 +114,7 @@ dtype = "bfloat16"
 
 ### 坑 2：sample.py 遇到空格 KeyError
 - prompt 含空格但训练 corpus 把空格全删了，stoi 里没有 ' ' 这个 key
-- 修复：encode lambda 加 `if c in stoi` 过滤未知字符
+- 修复：手动修改克隆下来的 `nanoGPT/sample.py`，encode lambda 加 `if c in stoi` 过滤未知字符（该修改不在本仓库内，上游 clone 后需自行打上，diff 见 README）
 - **教训**：字符级 tokenizer 必须有 OOV 兜底；这是 BPE/SentencePiece 字节级 fallback 的优势
 
 ### 坑 3：prompt 与训练数据格式不一致

@@ -1,17 +1,12 @@
+# 主线（nanoGPT 从零训练）依赖。
 # PyTorch — 单独装，匹配你的 CUDA 版本：
 # uv pip install torch --index-url https://download.pytorch.org/whl/cu124
 
-numpy>=1.24
-tqdm>=4.65
-zhconv>=1.4.3
-tiktoken>=0.5.0
-sentencepiece>=0.1.99
-transformers>=4.30
-datasets>=2.14
+numpy>=1.24        # scripts/prepare.py 写 train.bin/val.bin；nanoGPT 训练
+tqdm>=4.65         # scripts/extract_corpus.py 进度条
+zhconv>=1.4.3      # scripts/extract_corpus.py 简繁统一
+tiktoken>=0.5.0    # nanoGPT sample.py 顶层 import（即使走字符级 meta.pkl 也需要）
 
-# --- GRPO / RL fine-tune branch (unsloth_grpo_train.py) ---
-# pypinyin 是 reward 计算用的，纯 Python，跨平台。
-# unsloth + trl 仅在 CUDA + Linux 上有保证。
-pypinyin>=0.50
-trl>=0.11
-unsloth ; platform_system != "Darwin"
+# GRPO 韵律奖励微调分支（unsloth_grpo_train.py + rewards/）的依赖
+# 单独拆在 requirements-grpo.txt，按需安装：
+#   pip install -r requirements-grpo.txt

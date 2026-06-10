@@ -17,8 +17,15 @@ Reward functions used by GRPO training (`unsloth_grpo_train.py`).
 
     2. 平仄 (pingze_reward)：
        - 用 pypinyin tone 取每字声调：1、2 声 → 平 (P)；3、4 声 → 仄 (Z)；轻声 → 跳过。
-       - 五/七言一句内应有"平仄交替"倾向，**逐字两两不同**的占比即一句 score。
+       - 近体诗格律是**两字一顿的双字音步**（平平|仄仄|平平|仄），不是逐字交替；
+         逐字交替（平仄平仄平仄平）反而是出律的。
+       - 建模为"一三五不论、二四六分明"：句内偶数位（第 2、4、6 字，即每个
+         双字音步的节奏点）应平仄交替，占主要权重；再加一项平仄均衡度
+         （两类声调都要出现，惩罚全平/全仄的单调句）。
+       - 一句 score = 0.7 * 节奏点交替占比 + 0.3 * 平仄均衡度。
        - 全诗 score = 各句 score 的均值。
+       - 校准（方向性）：标准律句（平平仄仄平平仄）≈ 0.96 > 逐字交替 ≈ 0.26
+         > 全平/全仄 = 0.0。
 
     3. combined_reward = 0.6 * rhyme + 0.4 * pingze。
 
@@ -182,8 +189,45 @@ def _tone_to_pingze(ch: str) -> str | None:
     return None
 
 
+def _pingze_sentence_score(tones: List[str]) -> float:
+    """单句平仄 score 0~1，基于"双字音步"格律建模。
+
+    近体诗的节奏单位是两字一顿（平平|仄仄|平平|仄），核心规则是
+    "一三五不论、二四六分明"：每个双字音步的第二字（句内第 2、4、6 字）
+    是节奏点，相邻节奏点必须平仄交替；奇数位则相对自由。
+
+    score = 0.7 * even_alt + 0.3 * balance
+      - even_alt：相邻节奏点（偶数位字）平仄不同的占比。
+        标准律句 = 1.0；逐字交替句的节奏点全同 = 0.0。
+      - balance：平仄均衡度 2*min(#平,#仄)/总字数。
+        惩罚全平/全仄的单调句（balance=0），让"逐字交替"仍优于"全平全仄"
+        ——前者至少声调有起伏。
+    """
+    n = len(tones)
+    # 节奏点：第 2、4、6... 字（0-indexed 奇数位）
+    beats = tones[1::2]
+    if len(beats) < 2:
+        # 句子太短（<4 字），没有相邻节奏点可比，只看均衡度
+        even_alt = 0.0
+        alt_weight = 0.0
+    else:
+        diffs = sum(1 for a, b in zip(beats, beats[1:]) if a != b)
+        even_alt = diffs / (len(beats) - 1)
+        alt_weight = 0.7
+
+    n_p = sum(1 for t in tones if t == "P")
+    n_z = n - n_p
+    balance = 2.0 * min(n_p, n_z) / n if n else 0.0
+
+    return alt_weight * even_alt + (1.0 - alt_weight) * balance
+
+
 def pingze_reward(poem: str) -> float:
-    """平仄交替度 0~1。每句内逐字两两不同的占比，多句取均值。"""
+    """平仄合律度 0~1。按"双字音步/二四六分明"对每句打分，多句取均值。
+
+    详见 `_pingze_sentence_score`。方向性校准：
+    标准律句 > 逐字交替句 > 全平/全仄句。
+    """
     sents = _split_sentences(poem)
     if not sents:
         logger.debug("[grpo] pingze_reward: no sentence, return 0.0")
@@ -195,10 +239,7 @@ def pingze_reward(poem: str) -> float:
         tones = [t for t in tones if t is not None]
         if len(tones) < 2:
             continue
-        # 相邻不同的对数 / 总对数
-        diffs = sum(1 for a, b in zip(tones, tones[1:]) if a != b)
-        total_pairs = len(tones) - 1
-        sent_scores.append(diffs / total_pairs)
+        sent_scores.append(_pingze_sentence_score(tones))
 
     if not sent_scores:
         return 0.0

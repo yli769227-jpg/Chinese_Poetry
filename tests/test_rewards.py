@@ -75,10 +75,38 @@ def test_pingze_real_beats_garbage():
     print(f"\n[pingze] real_avg={real_avg:.3f}  garbage_avg={garbage_avg:.3f}")
     print(f"[pingze] real    per-poem: {[round(x,3) for x in real_scores]}")
     print(f"[pingze] garbage per-poem: {[round(x,3) for x in garbage_scores]}")
-    # 平仄比押韵更松，但仍应有差距
-    assert real_avg >= garbage_avg, (
-        f"pingze: real ({real_avg:.3f}) should be >= garbage ({garbage_avg:.3f})"
+    # 双字音步建模后真诗应显著高于乱写（实测 ~0.73 vs ~0.38）
+    assert real_avg > garbage_avg + 0.1, (
+        f"pingze: real ({real_avg:.3f}) should clearly beat "
+        f"garbage ({garbage_avg:.3f}) with margin >= 0.1"
     )
+
+
+def test_pingze_directional_ordering():
+    """方向性断言：标准律句 > 逐字交替句 > 全平/全仄句。
+
+    旧实现（逐字交替占比）下逐字交替得满分 1.0、标准律句只得 0.5，
+    信号反向；双字音步建模修复后顺序必须是律句最高、单调句最低。
+    """
+    # 标准七言律句：平平仄仄平平仄，仄仄平平仄仄平（杜甫《登高》）
+    lvju = "无边落木萧萧下，不尽长江滚滚来。"
+    # 逐字平仄交替（平仄平仄平仄平）——出律，旧实现却给满分
+    alternating = "天地天地天地天，地天地天地天地。"
+    # 全平 / 全仄 —— 声调单调，应最低
+    all_ping = "悠悠悠悠悠悠悠，茫茫茫茫茫茫茫。"
+    all_ze = "落落落落落落落，月月月月月月月。"
+
+    s_lvju = pingze_reward(lvju)
+    s_alt = pingze_reward(alternating)
+    s_ping = pingze_reward(all_ping)
+    s_ze = pingze_reward(all_ze)
+    print(
+        f"\n[pingze-dir] 律句={s_lvju:.3f} 逐字交替={s_alt:.3f} "
+        f"全平={s_ping:.3f} 全仄={s_ze:.3f}"
+    )
+    assert s_lvju > s_alt, f"律句 ({s_lvju:.3f}) 应高于逐字交替 ({s_alt:.3f})"
+    assert s_alt > s_ping, f"逐字交替 ({s_alt:.3f}) 应高于全平 ({s_ping:.3f})"
+    assert s_alt > s_ze, f"逐字交替 ({s_alt:.3f}) 应高于全仄 ({s_ze:.3f})"
 
 
 def test_combined_real_beats_garbage():
@@ -112,6 +140,8 @@ if __name__ == "__main__":
     print("OK rhyme")
     test_pingze_real_beats_garbage()
     print("OK pingze")
+    test_pingze_directional_ordering()
+    print("OK pingze directional ordering")
     test_combined_real_beats_garbage()
     print("OK combined")
     print("\nAll tests passed.")
