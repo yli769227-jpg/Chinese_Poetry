@@ -162,7 +162,7 @@ train 持续下降，val 在 step 9000 附近触底后基本平稳 —— 表面
 
 ### 重大发现：train/val 切分有 distribution shift
 
-现行 `prepare.py`：
+当时的 `prepare.py`（**旧版，已废弃**，现行代码见下方「修复方案」一节）：
 
 ```python
 split_idx = int(n * 0.9)

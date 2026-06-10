@@ -59,6 +59,14 @@ def load_json(path):
 def extract_paragraph_subset(dir_glob, label):
     """处理 paragraphs 字段的子集（唐诗 / 宋诗 / 宋词 / 元曲 / 论语）"""
     files = sorted(RAW_DIR.glob(dir_glob))
+    if not files:
+        # 上游目录改名 / 子集缺失会让 glob 命中 0 文件。
+        # 静默跳过会导致语料无声缺失，这里打 warning 指明哪个 pattern 没匹配到。
+        print(
+            f"  [warn] 子集「{label}」的 glob 未匹配到任何文件: "
+            f"{RAW_DIR / dir_glob}（该子集将被跳过，请检查目录是否改名/缺失）"
+        )
+        return []
     docs = []
     for fp in tqdm(files, desc=label):
         try:

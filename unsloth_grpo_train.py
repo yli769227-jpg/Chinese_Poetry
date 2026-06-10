@@ -61,15 +61,20 @@ DEFAULT_CORPUS = PROJECT_ROOT / "data" / "corpus.txt"
 DEFAULT_BASE_MODEL = "unsloth/Qwen2.5-0.5B-Instruct"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "out" / "grpo_qwen05"
 
+# prompt 预留长度（GRPOConfig.max_prompt_length）。
+# max_completion_length = max_seq_length - PROMPT_RESERVED_LEN，必须为正，
+# 否则 GRPOConfig/生成阶段会因非正的 max_completion_length 报错。
+PROMPT_RESERVED_LEN = 64
+
 
 # -----------------------------------------------------------------------------
 # Dataset 加载
 # -----------------------------------------------------------------------------
 def load_poems(corpus_path: Path, max_n: int | None = None) -> List[Dict[str, str]]:
-    """读 corpus.txt → list of {"prompt": <《标题》作者>, "title": ..., "raw": <全文>}。
+    """读 corpus.txt → list of {"prompt", "completion", "title", "raw"}。
 
     Prompt = 头部行（《标题》作者）+ 换行；
-    Completion = 模型补出的正文。
+    Completion = 模型补出的正文（满足 prompt + completion == raw + 人造换行）。
     若文档缺标题（论语等），fallback 用前 6 字符作 prompt。
     """
     if not corpus_path.exists():
@@ -87,10 +92,19 @@ def load_poems(corpus_path: Path, max_n: int | None = None) -> List[Dict[str, st
         lines = doc.split("\n")
         head = lines[0]
         if "》" in head:
+            # 标题行作 prompt，正文是标题行之后的全部内容（含起始换行）。
             prompt = head + "\n"
+            completion = doc[len(head):]  # 含 head 后的 "\n"，与 prompt 拼回即原文
         else:
-            prompt = doc[:6] + "\n"
-        poems.append({"prompt": prompt, "title": head, "raw": doc})
+            # 无标题 fallback：取前 6 个字符作 prompt 前缀。
+            # 注意：prompt 末尾追加的 "\n" 是人造分隔符，不在 doc 里，
+            # 因此 completion 必须从 doc[6:] 起，否则会吞掉正文第 7 个字符。
+            prefix_len = min(6, len(doc))
+            prompt = doc[:prefix_len] + "\n"
+            completion = doc[prefix_len:]
+        poems.append(
+            {"prompt": prompt, "completion": completion, "title": head, "raw": doc}
+        )
         if max_n is not None and len(poems) >= max_n:
             break
 
@@ -161,10 +175,13 @@ def run_dry_run(args) -> int:
     corpus_path = Path(args.corpus)
     if not corpus_path.exists():
         logger.warning("corpus %s not found — synthesizing a tiny fake sample", corpus_path)
+        _fake_raw = "《静夜思》李白\n床前明月光，疑是地上霜。\n举头望明月，低头思故乡。"
+        _fake_prompt = "《静夜思》李白\n"
         sample_poem = {
-            "prompt": "《静夜思》李白\n",
+            "prompt": _fake_prompt,
+            "completion": _fake_raw[len("《静夜思》李白"):],
             "title": "《静夜思》李白",
-            "raw": "《静夜思》李白\n床前明月光，疑是地上霜。\n举头望明月，低头思故乡。",
+            "raw": _fake_raw,
         }
     else:
         try:
@@ -192,9 +209,19 @@ def run_dry_run(args) -> int:
     # 5) reward_fn 接口
     try:
         fn = build_reward_fn()
+        completion = sample_poem["completion"]
+        # 完整性自检：prompt + completion 必须能无损拼回 raw（不丢字符）
+        reconstructed = sample_poem["prompt"].rstrip("\n") + completion
+        if reconstructed != sample_poem["raw"]:
+            logger.error(
+                "completion 切片错位：prompt+completion 无法还原 raw\n"
+                "  raw          = %r\n  reconstructed= %r",
+                sample_poem["raw"], reconstructed,
+            )
+            return 1
         batch = fn(
             prompts=[sample_poem["prompt"]],
-            completions=[sample_poem["raw"][len(sample_poem["prompt"]):]],
+            completions=[completion],
         )
         logger.info("reward_fn batch output: %s", batch)
     except Exception as e:
@@ -227,6 +254,25 @@ def run_train(args) -> int:
     logger.info(
         "batch config OK: batch_size=%d num_generations=%d",
         args.batch_size, args.num_generations,
+    )
+
+    # max_seq_length 必须大于 prompt 预留长度，否则
+    # max_completion_length = max_seq_length - PROMPT_RESERVED_LEN <= 0，
+    # GRPOConfig/生成阶段会因非正补全长度报错。同样在加载重型依赖前校验。
+    if args.max_seq_length <= PROMPT_RESERVED_LEN:
+        logger.error(
+            "invalid --max-seq-length %d：必须 > prompt 预留长度 %d，"
+            "否则 max_completion_length = %d - %d = %d 为非正数，"
+            "GRPOConfig/生成阶段会报错。请改成例如 --max-seq-length %d。",
+            args.max_seq_length, PROMPT_RESERVED_LEN,
+            args.max_seq_length, PROMPT_RESERVED_LEN,
+            args.max_seq_length - PROMPT_RESERVED_LEN,
+            PROMPT_RESERVED_LEN + 64,
+        )
+        return 1
+    logger.info(
+        "seq length OK: max_seq_length=%d → max_completion_length=%d",
+        args.max_seq_length, args.max_seq_length - PROMPT_RESERVED_LEN,
     )
 
     # 重型依赖 import 放在这里，dry-run 时根本不会执行
@@ -291,8 +337,8 @@ def run_train(args) -> int:
         save_steps=max(50, args.max_steps // 4),
         bf16=True,
         report_to="none",
-        max_prompt_length=64,
-        max_completion_length=args.max_seq_length - 64,
+        max_prompt_length=PROMPT_RESERVED_LEN,
+        max_completion_length=args.max_seq_length - PROMPT_RESERVED_LEN,
     )
 
     trainer = GRPOTrainer(
